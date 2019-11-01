@@ -1,7 +1,9 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import init
 from torch.autograd import Variable
+from sklearn.preprocessing import normalize
 
 import numpy as np
 import time
@@ -9,8 +11,8 @@ import random
 from sklearn.metrics import f1_score
 from collections import defaultdict
 
-from graphsage.encoders import Encoder
-from graphsage.aggregators import MeanAggregator
+from encoders import Encoder
+from aggregators import MeanAggregator
 
 """
 Simple supervised GraphSAGE model as well as examples running the model
@@ -36,6 +38,29 @@ class SupervisedGraphSage(nn.Module):
         scores = self.forward(nodes)
         return self.xent(scores, labels.squeeze())
 
+def findNeighbor(adjList):
+    num_nodes = len(adjList)
+
+    P = np.zeros([num_nodes,num_nodes])
+    r0 = np.identity(num_nodes)
+    for i in range(num_nodes):
+        for v in adjList[i]:
+            P[i][v] = 1
+    P = normalize(P,norm='l1',axis=0)
+    r = r0
+    for i in range(5):
+        r = 0.85*np.dot(P, r) + 0.15*r
+
+    adj_list = defaultdict(set)
+    for i in range(num_nodes):
+#        tt = list(adjList[i])
+        for j in range(min(len(adjList[i]),5)):
+            tmp = np.argmax(r[i])
+            r[i][tmp] = 0
+            adj_list[i].add(tmp)
+#            adj_list[i].add(tt[j])
+    return adj_list
+
 def load_cora():
     num_nodes = 2708
     num_feats = 1433
@@ -46,7 +71,7 @@ def load_cora():
     with open("cora/cora.content") as fp:
         for i,line in enumerate(fp):
             info = line.strip().split()
-            feat_data[i,:] = map(float, info[1:-1])
+            feat_data[i,:] = [float(x) for x in info[1:-1]]
             node_map[info[0]] = i
             if not info[-1] in label_map:
                 label_map[info[-1]] = len(label_map)
@@ -60,6 +85,7 @@ def load_cora():
             paper2 = node_map[info[1]]
             adj_lists[paper1].add(paper2)
             adj_lists[paper2].add(paper1)
+    adj_lists = findNeighbor(adj_lists)
     return feat_data, labels, adj_lists
 
 def run_cora():
@@ -99,11 +125,11 @@ def run_cora():
         optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        print batch, loss.data[0]
+        print(batch, loss.data.item())
 
     val_output = graphsage.forward(val) 
-    print "Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro")
-    print "Average batch time:", np.mean(times)
+    print("Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro"))
+    print("Average batch time:", np.mean(times))
 
 def load_pubmed():
     #hardcoded for simplicity...
@@ -171,11 +197,11 @@ def run_pubmed():
         optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        print batch, loss.data[0]
+        print(batch, loss.data[0])
 
     val_output = graphsage.forward(val) 
-    print "Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro")
-    print "Average batch time:", np.mean(times)
+    print("Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro"))
+    print("Average batch time:", np.mean(times))
 
 if __name__ == "__main__":
     run_cora()

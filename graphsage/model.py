@@ -26,7 +26,8 @@ class SupervisedGraphSage(nn.Module):
         self.enc = enc
         self.xent = nn.CrossEntropyLoss()
 
-        self.weight = nn.Parameter(torch.FloatTensor(num_classes, enc.embed_dim))
+        self.weight = nn.Parameter(torch.FloatTensor
+        (num_classes, enc.embed_dim))
         init.xavier_uniform(self.weight)
 
     def forward(self, nodes):
@@ -48,18 +49,19 @@ def findNeighbor(adjList):
             P[i][v] = 1
     P = normalize(P,norm='l1',axis=0)
     r = r0
-    for i in range(5):
-        r = 0.85*np.dot(P, r) + 0.15*r
+    for i in range(10):
+        r = 0.9*np.dot(P, r) + 0.1*r
 
-    adj_list = defaultdict(set)
+    adj_score_list = defaultdict(set)
+    adj_score_sum = defaultdict(set)
     for i in range(num_nodes):
-#        tt = list(adjList[i])
-        for j in range(min(len(adjList[i]),5)):
-            tmp = np.argmax(r[i])
-            r[i][tmp] = 0
-            adj_list[i].add(tmp)
-#            adj_list[i].add(tt[j])
-    return adj_list
+        adj_score_list[i] = {}
+        adj_score_sum[i] = 0
+        tt = list(adjList[i])
+        for j in tt:
+            adj_score_list[i][j] = r[i][j]
+            adj_score_sum[i] += r[i][j]
+    return adj_score_list, adj_score_sum
 
 def load_cora():
     num_nodes = 2708
@@ -85,7 +87,7 @@ def load_cora():
             paper2 = node_map[info[1]]
             adj_lists[paper1].add(paper2)
             adj_lists[paper2].add(paper1)
-    adj_lists = findNeighbor(adj_lists)
+
     return feat_data, labels, adj_lists
 
 def run_cora():
@@ -93,13 +95,14 @@ def run_cora():
     random.seed(1)
     num_nodes = 2708
     feat_data, labels, adj_lists = load_cora()
+    adj_score_list,adj_score_sum = findNeighbor(adj_lists)
     features = nn.Embedding(2708, 1433)
     features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=False)
    # features.cuda()
 
-    agg1 = MeanAggregator(features, cuda=True)
+    agg1 = MeanAggregator(adj_score_list,adj_score_sum,features, cuda=True)
     enc1 = Encoder(features, 1433, 128, adj_lists, agg1, gcn=True, cuda=False)
-    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t(), cuda=False)
+    agg2 = MeanAggregator(adj_score_list,adj_score_sum,lambda nodes : enc1(nodes).t(), cuda=False)
     enc2 = Encoder(lambda nodes : enc1(nodes).t(), enc1.embed_dim, 128, adj_lists, agg2,
             base_model=enc1, gcn=True, cuda=False)
     enc1.num_samples = 5
@@ -186,7 +189,7 @@ def run_pubmed():
 
     optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, graphsage.parameters()), lr=0.7)
     times = []
-    for batch in range(200):
+    for batch in range(300):
         batch_nodes = train[:1024]
         random.shuffle(train)
         start_time = time.time()
